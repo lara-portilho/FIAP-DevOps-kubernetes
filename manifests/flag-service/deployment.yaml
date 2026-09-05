@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flag-service
+  namespace: togglemaster
+  labels:
+    app: flag-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flag-service
+  template:
+    metadata:
+      labels:
+        app: flag-service
+    spec:
+      initContainers:
+        - name: migrate-db
+          image: postgres:15-alpine
+          command: ["sh", "-c", "psql $DATABASE_URL -f /migrations/flags.sql"]
+          envFrom:
+            - secretRef:
+                name: flag-service-secrets
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+      volumes:
+        - name: migrations
+          configMap:
+            name: flag-db-migrations
+      containers:
+        - name: flag-service
+          image: PLACEHOLDER/togglemaster/flag-service:pending
+          ports:
+            - containerPort: 8002
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          envFrom:
+            - secretRef:
+                name: flag-service-secrets
+            - configMapRef:
+                name: shared-config
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            initialDelaySeconds: 5
+            periodSeconds: 10

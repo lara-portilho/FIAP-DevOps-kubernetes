@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: togglemaster
+  labels:
+    app: auth-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      initContainers:
+        - name: migrate-db
+          image: postgres:15-alpine
+          command: ["sh", "-c", "psql $DATABASE_URL -f /migrations/auth.sql"]
+          envFrom:
+            - secretRef:
+                name: auth-service-secrets
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+      volumes:
+        - name: migrations
+          configMap:
+            name: auth-db-migrations
+      containers:
+        - name: auth-service
+          image: PLACEHOLDER/togglemaster/auth-service:pending
+          ports:
+            - containerPort: 8001
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          envFrom:
+            - secretRef:
+                name: auth-service-secrets
+            - configMapRef:
+                name: shared-config
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 5
+            periodSeconds: 10
