@@ -61,14 +61,21 @@ export DB_PASSWORD='a mesma senha de db_password no terraform.tfvars'
 
 Isso imprime a `MASTER_KEY` gerada — guarde, ela e usada no passo 5.
 
-3. Aplique os Secrets direto no cluster (ficam em `secrets/`, que esta no `.gitignore` — nada disso
+3. Crie o namespace (ele so seria criado pelo ArgoCD ao sincronizar o Application da plataforma, mas
+   os Secrets do passo seguinte precisam dele antes disso):
+
+```bash
+kubectl create namespace togglemaster
+```
+
+4. Aplique os Secrets direto no cluster (ficam em `secrets/`, que esta no `.gitignore` — nada disso
    passa pelo Git):
 
 ```bash
 kubectl apply -f secrets/
 ```
 
-4. Aplique as 6 Applications do ArgoCD (bootstrap manual, uma unica vez):
+5. Aplique as 6 Applications do ArgoCD (bootstrap manual, uma unica vez):
 
 ```bash
 kubectl apply -f argocd/
@@ -77,14 +84,14 @@ kubectl apply -f argocd/
 Acompanhe a sincronizacao pela interface do ArgoCD (veja "Acessar a interface do ArgoCD" no README do
 `FIAP-DevOps-terraform`) ou por `kubectl get pods -n togglemaster -w`.
 
-5. Depois que os pods estiverem `Running`/`Ready`, gere a API key de servico:
+6. Depois que os pods estiverem `Running`/`Ready`, gere a API key de servico:
 
 ```bash
 export MASTER_KEY='a MASTER_KEY impressa no passo 2'
 ./setup-service-key.sh
 ```
 
-6. Verifique:
+7. Verifique:
 
 ```bash
 kubectl get applications -n argocd
