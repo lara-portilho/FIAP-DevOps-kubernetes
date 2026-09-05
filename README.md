@@ -100,8 +100,13 @@ A partir daqui, cada push na branch `main` de qualquer um dos 5 repos de servico
 nenhuma acao manual.
 
 Para isso funcionar, cada um dos 5 repos de servico precisa ter um Secret `GITOPS_PAT`: um Personal
-Access Token do GitHub (fine-grained, permissao de escrita em Contents restrita a este repositorio),
-usado pelo `git push` automatico no workflow de CI.
+Access Token do GitHub (classic, escopo `repo`) usado pelo `git push` automatico no workflow de CI.
+
+Nota: o ideal seria um fine-grained PAT restrito so a este repositorio, mas fine-grained PATs so deixam
+selecionar repositorios pessoais que voce mesmo possui (ou de organizacoes) — nao aparece na lista um
+repositorio pessoal de outra conta mesmo como collaborator. Por isso, quando o dono do token e apenas
+collaborator (nao o dono da conta) neste repositorio, um PAT classic e o caminho que funciona; ele da
+acesso a tudo que essa conta enxerga com o escopo `repo`, entao trate-o com o mesmo cuidado de uma senha.
 
 ## Secrets neste repositorio
 
