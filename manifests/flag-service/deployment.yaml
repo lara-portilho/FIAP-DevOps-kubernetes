@@ -31,7 +31,7 @@ spec:
             name: flag-db-migrations
       containers:
         - name: flag-service
-          image: PLACEHOLDER/togglemaster/flag-service:pending
+          image: 371892039616.dkr.ecr.us-east-1.amazonaws.com/togglemaster/flag-service:v1.0.0-aa80ed7
           ports:
             - containerPort: 8002
           resources:
