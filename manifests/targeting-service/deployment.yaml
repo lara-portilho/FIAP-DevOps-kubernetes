@@ -31,7 +31,7 @@ spec:
             name: targeting-db-migrations
       containers:
         - name: targeting-service
-          image: PLACEHOLDER/togglemaster/targeting-service:pending
+          image: 371892039616.dkr.ecr.us-east-1.amazonaws.com/togglemaster/targeting-service:v1.0.0-9e8c481
           ports:
             - containerPort: 8003
           resources:

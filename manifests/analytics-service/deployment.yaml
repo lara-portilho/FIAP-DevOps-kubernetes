@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: analytics-service
-          image: PLACEHOLDER/togglemaster/analytics-service:pending
+          image: 371892039616.dkr.ecr.us-east-1.amazonaws.com/togglemaster/analytics-service:v1.0.0-2cc159e
           ports:
             - containerPort: 8005
           resources:

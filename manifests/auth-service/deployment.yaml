@@ -31,7 +31,7 @@ spec:
             name: auth-db-migrations
       containers:
         - name: auth-service
-          image: PLACEHOLDER/togglemaster/auth-service:pending
+          image: 371892039616.dkr.ecr.us-east-1.amazonaws.com/togglemaster/auth-service:v1.0.0-79b1ffa
           ports:
             - containerPort: 8001
           resources:
