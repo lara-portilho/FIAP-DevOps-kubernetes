@@ -27,19 +27,21 @@ sempre o ArgoCD.
 .
 ├── manifests/
 │   ├── platform/              # Namespace, ConfigMap compartilhado, Ingress (5 rotas)
-│   ├── auth-service/           # Secret, ConfigMap de migration, Deployment (com init container), Service
+│   ├── auth-service/           # ConfigMap de migration, Deployment (com init container), Service
 │   ├── flag-service/           # idem
 │   ├── targeting-service/      # idem
-│   ├── evaluation-service/      # Secret, Deployment (sem migration), Service, HPA (1-4, cpu 30%)
-│   └── analytics-service/       # Secret, Deployment (sem migration), Service, HPA (1-3, cpu 70%)
+│   ├── evaluation-service/      # Deployment (sem migration), Service, HPA (1-4, cpu 30%)
+│   └── analytics-service/       # Deployment (sem migration), Service, HPA (1-3, cpu 70%)
 ├── argocd/                     # 6 Applications (uma por pasta de manifests/)
-├── render-secrets.sh           # gera manifests/*/secret.yaml com valores reais (RDS/Redis/SQS)
+├── secrets/                    # gitignored -- Secrets com valores reais, NUNCA commitados
+├── render-secrets.sh           # gera secrets/*.yaml com valores reais (RDS/Redis/SQS)
 ├── setup-service-key.sh        # gera a API key do evaluation-service chamando o auth-service
 └── README.md
 ```
 
 Cada Application do ArgoCD aponta pra uma pasta diferente de `manifests/`, entao cada microsservico e
-gerenciado de forma independente (sync/rollback/historico separados na interface do ArgoCD).
+gerenciado de forma independente (sync/rollback/historico separados na interface do ArgoCD). Os Secrets
+ficam fora de `manifests/` de proposito — veja "Secrets neste repositorio" abaixo.
 
 ## Bootstrap (rodar uma vez, depois do `terraform apply` no repo de infra)
 
@@ -59,12 +61,11 @@ export DB_PASSWORD='a mesma senha de db_password no terraform.tfvars'
 
 Isso imprime a `MASTER_KEY` gerada — guarde, ela e usada no passo 5.
 
-3. Commit e push dos Secrets gerados:
+3. Aplique os Secrets direto no cluster (ficam em `secrets/`, que esta no `.gitignore` — nada disso
+   passa pelo Git):
 
 ```bash
-git add manifests/*/secret.yaml
-git commit -m "chore: seed secrets from terraform outputs"
-git push
+kubectl apply -f secrets/
 ```
 
 4. Aplique as 6 Applications do ArgoCD (bootstrap manual, uma unica vez):
@@ -110,7 +111,19 @@ acesso a tudo que essa conta enxerga com o escopo `repo`, entao trate-o com o me
 
 ## Secrets neste repositorio
 
-Os `manifests/*/secret.yaml` sao commitados com valores reais (senha do RDS, chaves de servico) — uma
-simplificacao deliberada para este trabalho academico, equivalente ao que a Fase 2 ja fazia via
-`kubernetes_secret` no Terraform. Em um ambiente real isso usaria Sealed Secrets, External Secrets
-Operator ou SOPS para nao versionar segredo em texto plano.
+Os Secrets (senha do RDS, chaves de servico) **nunca** passam pelo Git. `render-secrets.sh` gera os
+arquivos em `secrets/`, que esta no `.gitignore` -- voce aplica com `kubectl apply -f secrets/`
+diretamente no cluster.
+
+Isso e intencional: nenhum dos 6 Applications do ArgoCD aponta pra `secrets/` (todos apontam pra
+subpastas de `manifests/`), entao o ArgoCD nem sabe que esses Secrets existem -- não ha risco do
+`selfHeal` reverter um `kubectl patch` (ex: o que o `setup-service-key.sh` faz), nem de credencial real
+aparecer em commit, PR ou historico do repositorio. Os Deployments em `manifests/*/deployment.yaml`
+referenciam esses Secrets por nome (`envFrom.secretRef`); o Kubernetes so exige que eles existam no
+namespace quando o pod for de fato criado, entao a ordem entre aplicar `secrets/` e sincronizar o ArgoCD
+nao e critica (mas o bootstrap abaixo aplica os Secrets primeiro, pra evitar erro transitorio de pod).
+
+Isso e mais restrito do que o "Secret no Git" que a Fase 2 fazia (la a senha ficava no
+`terraform.tfvars`/state do Terraform) -- aqui ela nao fica em lugar nenhum versionado, so no cluster.
+Em um ambiente real de producao, o proximo passo seria um Secrets Manager de verdade (Sealed Secrets,
+External Secrets Operator, AWS Secrets Manager) para nem depender de rodar um script manual.

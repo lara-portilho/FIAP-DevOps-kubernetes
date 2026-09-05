@@ -57,11 +57,14 @@ echo "==> Reiniciando evaluation-service..."
 kubectl rollout restart deployment/evaluation-service -n "$NAMESPACE"
 kubectl rollout status deployment/evaluation-service -n "$NAMESPACE"
 
+# Mantem o arquivo local (gitignored) em sincronia, caso precise reaplicar depois
+if [ -f secrets/evaluation-service-secret.yaml ]; then
+  sed -i.bak "s#SERVICE_API_KEY: .*#SERVICE_API_KEY: \"${NEW_KEY}\"#" secrets/evaluation-service-secret.yaml
+  rm -f secrets/evaluation-service-secret.yaml.bak
+fi
+
 echo ""
 echo "Concluido! api_key para o Insomnia/testes: ${NEW_KEY}"
 echo ""
-echo "Nota: o ArgoCD tem selfHeal ativado no Application 'togglemaster-evaluation-service'."
-echo "Como o Secret commitado no Git ainda tem o placeholder, o ArgoCD pode reverter esse"
-echo "patch no proximo sync. Depois de rodar este script, atualize tambem"
-echo "manifests/evaluation-service/secret.yaml com esta key e faca commit/push,"
-echo "para o Git continuar sendo a fonte da verdade."
+echo "O Secret evaluation-service-secrets nao e rastreado pelo ArgoCD (fora de manifests/),"
+echo "entao esse patch fica de pe -- nao ha risco de selfHeal reverter."
