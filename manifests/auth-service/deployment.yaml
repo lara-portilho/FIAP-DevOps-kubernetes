@@ -18,17 +18,22 @@ spec:
       initContainers:
         - name: migrate-db
           image: postgres:15-alpine
-          command: ["sh", "-c", "psql $DATABASE_URL -f /migrations/auth.sql"]
+          command: ["sh", "-c", "psql $DATABASE_URL -f /migrations/auth.sql && psql $DATABASE_URL -f /seed/seed.sql"]
           envFrom:
             - secretRef:
                 name: auth-service-secrets
           volumeMounts:
             - name: migrations
               mountPath: /migrations
+            - name: seed
+              mountPath: /seed
       volumes:
         - name: migrations
           configMap:
             name: auth-db-migrations
+        - name: seed
+          configMap:
+            name: auth-db-seed
       containers:
         - name: auth-service
           image: 371892039616.dkr.ecr.us-east-1.amazonaws.com/togglemaster/auth-service:v1.0.0-79b1ffa

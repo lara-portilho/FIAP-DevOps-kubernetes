@@ -7,9 +7,17 @@
 # manifests/), entao aplique-os manualmente com kubectl e o ArgoCD nao vai
 # reverter (selfHeal so age sobre o que esta no Git).
 #
-# SERVICE_API_KEY do evaluation-service NAO e gerado aqui -- fica como
-# placeholder ate rodar ./setup-service-key.sh depois que o auth-service
-# estiver de pe (precisa chamar o proprio auth-service pra emitir a key).
+# A SERVICE_API_KEY do evaluation-service e gerada aqui e semeada direto no
+# banco do auth-service via um ConfigMap extra (auth-db-seed) que o init
+# container do auth-service roda junto com a migration -- o auth-service so
+# guarda o hash SHA-256 da key (nunca o valor em texto puro), entao inserir o
+# hash direto no banco e equivalente a criar a key pela API, sem precisar
+# esperar o servico subir pra chamar HTTP.
+#
+# Se voce rodar este script de novo com um cluster ja em pe (nao logo apos um
+# terraform apply do zero), a key so passa a valer depois que o pod do
+# auth-service for recriado (o init container so roda na criacao do pod):
+#   kubectl rollout restart deployment/auth-service -n togglemaster
 #
 # Uso:
 #   export DB_PASSWORD='a mesma senha do terraform.tfvars'
@@ -21,6 +29,16 @@ TF_DIR="${TF_DIR:-../FIAP-DevOps-terraform}"
 DB_USERNAME="${DB_USERNAME:-postgres}"
 : "${DB_PASSWORD:?defina DB_PASSWORD (a mesma senha de db_password no terraform.tfvars)}"
 AUTH_MASTER_KEY="${AUTH_MASTER_KEY:-$(openssl rand -hex 24)}"
+SERVICE_API_KEY="${SERVICE_API_KEY:-tm_key_$(openssl rand -hex 24)}"
+
+sha256_hex() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$1" | sha256sum | cut -d' ' -f1
+  else
+    printf '%s' "$1" | shasum -a 256 | cut -d' ' -f1
+  fi
+}
+SERVICE_API_KEY_HASH=$(sha256_hex "$SERVICE_API_KEY")
 
 mkdir -p secrets
 
@@ -43,6 +61,20 @@ type: Opaque
 stringData:
   DATABASE_URL: "postgres://${DB_USERNAME}:${DB_PASSWORD}@${RDS_AUTH}:5432/auth_db"
   MASTER_KEY: "${AUTH_MASTER_KEY}"
+EOF
+
+echo "==> Gerando secrets/auth-db-seed-configmap.yaml (semeia a SERVICE_API_KEY no banco)..."
+cat > secrets/auth-db-seed-configmap.yaml <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auth-db-seed
+  namespace: togglemaster
+data:
+  seed.sql: |
+    INSERT INTO api_keys (name, key_hash, is_active)
+    VALUES ('service-key', '${SERVICE_API_KEY_HASH}', true)
+    ON CONFLICT (key_hash) DO NOTHING;
 EOF
 
 echo "==> Gerando secrets/flag-service-secret.yaml..."
@@ -79,7 +111,7 @@ metadata:
 type: Opaque
 stringData:
   REDIS_URL: "redis://${REDIS_ENDPOINT}:6379"
-  SERVICE_API_KEY: "PENDING_RUN_SETUP_SERVICE_KEY_SH"
+  SERVICE_API_KEY: "${SERVICE_API_KEY}"
   AWS_SQS_URL: "${SQS_URL}"
 EOF
 
@@ -96,7 +128,7 @@ stringData:
 EOF
 
 echo ""
-echo "==> MASTER_KEY gerada para o auth-service (guarde, precisa dela no setup-service-key.sh):"
+echo "==> MASTER_KEY gerada para o auth-service (use se quiser criar outras keys via POST /admin/keys):"
 echo "    ${AUTH_MASTER_KEY}"
 echo ""
 echo "==> Pronto. Aplique direto no cluster (nada aqui vai pro Git):"
