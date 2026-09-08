@@ -36,7 +36,7 @@ spec:
             name: auth-db-seed
       containers:
         - name: auth-service
-          image: 371892039616.dkr.ecr.us-east-1.amazonaws.com/togglemaster/auth-service:v1.0.0-79b1ffa
+          image: 371892039616.dkr.ecr.us-east-1.amazonaws.com/togglemaster/auth-service:v1.0.0-b715705
           ports:
             - containerPort: 8001
           resources:
