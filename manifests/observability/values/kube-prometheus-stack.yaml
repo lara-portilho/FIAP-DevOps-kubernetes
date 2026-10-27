@@ -1,0 +1,69 @@
+# Prometheus + Grafana + node-exporter + kube-state-metrics.
+# Sem PVC (o cluster nao tem o driver EBS CSI): dados em emptyDir.
+
+# Alertas/notificacoes sao configurados no Grafana (requisito 4), entao o
+# Alertmanager fica desligado para economizar recursos.
+alertmanager:
+  enabled: false
+
+# Componentes do control plane sao gerenciados pela AWS no EKS e nao sao
+# acessiveis para scrape.
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+prometheus:
+  prometheusSpec:
+    # O Alloy envia as metricas OTLP (apps + spanmetrics) via remote_write
+    enableRemoteWriteReceiver: true
+    retention: 3d
+    # Descobre ServiceMonitors/PodMonitors de qualquer release, nao so deste
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        memory: 1536Mi
+
+grafana:
+  # Senha do admin vem do Secret grafana-admin (gerado pelo render-secrets.sh,
+  # fora do Git)
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  persistence:
+    enabled: false
+  # Pod de "helm test" -- nao faz sentido sob o ArgoCD
+  testFramework:
+    enabled: false
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      uid: loki
+      access: proxy
+      url: http://loki.observability.svc.cluster.local:3100
+      jsonData:
+        maxLines: 1000
+  # Dashboards versionados em ConfigMaps com o label grafana_dashboard=1 sao
+  # carregados automaticamente pelo sidecar (em qualquer namespace)
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      memory: 512Mi
