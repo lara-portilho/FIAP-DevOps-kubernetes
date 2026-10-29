@@ -19,8 +19,14 @@
 # auth-service for recriado (o init container so roda na criacao do pod):
 #   kubectl rollout restart deployment/auth-service -n togglemaster
 #
+# Stack de observabilidade (namespace observability): a license key do New
+# Relic (NEW_RELIC_LICENSE_KEY, tipo "INGEST - LICENSE") vai para o Secret
+# newrelic-license usado pelo Alloy; a senha do admin do Grafana e gerada se
+# GRAFANA_ADMIN_PASSWORD nao for definida.
+#
 # Uso:
 #   export DB_PASSWORD='a mesma senha do terraform.tfvars'
+#   export NEW_RELIC_LICENSE_KEY='sua license key de ingest do New Relic'
 #   ./render-secrets.sh
 #   kubectl apply -f secrets/
 set -euo pipefail
@@ -28,6 +34,8 @@ set -euo pipefail
 TF_DIR="${TF_DIR:-../FIAP-DevOps-terraform}"
 DB_USERNAME="${DB_USERNAME:-postgres}"
 : "${DB_PASSWORD:?defina DB_PASSWORD (a mesma senha de db_password no terraform.tfvars)}"
+: "${NEW_RELIC_LICENSE_KEY:?defina NEW_RELIC_LICENSE_KEY (license key de ingest do New Relic)}"
+GRAFANA_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD:-$(openssl rand -hex 16)}"
 AUTH_MASTER_KEY="${AUTH_MASTER_KEY:-$(openssl rand -hex 24)}"
 SERVICE_API_KEY="${SERVICE_API_KEY:-tm_key_$(openssl rand -hex 24)}"
 
@@ -127,6 +135,34 @@ stringData:
   AWS_SQS_URL: "${SQS_URL}"
 EOF
 
+echo "==> Gerando secrets/newrelic-secret.yaml (license key usada pelo Alloy)..."
+cat > secrets/newrelic-secret.yaml <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: newrelic-license
+  namespace: observability
+type: Opaque
+stringData:
+  NEW_RELIC_LICENSE_KEY: "${NEW_RELIC_LICENSE_KEY}"
+EOF
+
+echo "==> Gerando secrets/grafana-admin-secret.yaml..."
+cat > secrets/grafana-admin-secret.yaml <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-admin
+  namespace: observability
+type: Opaque
+stringData:
+  admin-user: "admin"
+  admin-password: "${GRAFANA_ADMIN_PASSWORD}"
+EOF
+
+echo ""
+echo "==> Senha do admin do Grafana (usuario: admin):"
+echo "    ${GRAFANA_ADMIN_PASSWORD}"
 echo ""
 echo "==> MASTER_KEY gerada para o auth-service (use se quiser criar outras keys via POST /admin/keys):"
 echo "    ${AUTH_MASTER_KEY}"

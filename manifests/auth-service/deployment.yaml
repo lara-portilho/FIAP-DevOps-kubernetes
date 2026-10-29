@@ -51,6 +51,9 @@ spec:
                 name: auth-service-secrets
             - configMapRef:
                 name: shared-config
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: auth-service
           livenessProbe:
             httpGet:
               path: /health
