@@ -32,6 +32,9 @@ spec:
                 name: analytics-service-secrets
             - configMapRef:
                 name: shared-config
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: analytics-service
           livenessProbe:
             httpGet:
               path: /health

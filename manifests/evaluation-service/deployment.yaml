@@ -32,6 +32,9 @@ spec:
                 name: evaluation-service-secrets
             - configMapRef:
                 name: shared-config
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: evaluation-service
           livenessProbe:
             httpGet:
               path: /health

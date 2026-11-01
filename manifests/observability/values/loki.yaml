@@ -1,0 +1,66 @@
+# Loki em modo SingleBinary (1 pod), armazenamento em filesystem.
+# Sem PVC: o cluster nao tem o driver EBS CSI, entao os dados ficam em emptyDir
+# (perdidos se o pod for recriado) -- suficiente para a demonstracao.
+deploymentMode: SingleBinary
+
+loki:
+  auth_enabled: false
+  commonConfig:
+    replication_factor: 1
+  storage:
+    type: filesystem
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: loki_index_
+          period: 24h
+  limits_config:
+    allow_structured_metadata: true
+    volume_enabled: true
+    retention_period: 72h
+  pattern_ingester:
+    enabled: false
+
+singleBinary:
+  replicas: 1
+  persistence:
+    enabled: false
+  # Sem PVC o chart nao monta nada em /var/loki (e o root filesystem e read-only)
+  extraVolumes:
+    - name: data
+      emptyDir:
+        sizeLimit: 5Gi
+  extraVolumeMounts:
+    - name: data
+      mountPath: /var/loki
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+# Desliga os componentes do modo distribuido/SimpleScalable
+backend:
+  replicas: 0
+read:
+  replicas: 0
+write:
+  replicas: 0
+
+# O Alloy e o Grafana falam direto com o Service "loki" (porta 3100); gateway,
+# caches, canary e testes so consumiriam pods/memoria num cluster pequeno.
+gateway:
+  enabled: false
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false
+lokiCanary:
+  enabled: false
+test:
+  enabled: false

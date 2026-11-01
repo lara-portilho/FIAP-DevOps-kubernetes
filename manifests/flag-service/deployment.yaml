@@ -46,6 +46,9 @@ spec:
                 name: flag-service-secrets
             - configMapRef:
                 name: shared-config
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: flag-service
           livenessProbe:
             httpGet:
               path: /health

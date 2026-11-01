@@ -1,0 +1,29 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability-kube-prometheus-stack
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://prometheus-community.github.io/helm-charts
+      chart: kube-prometheus-stack
+      targetRevision: 92.13.1
+      helm:
+        releaseName: kube-prometheus-stack
+        valueFiles:
+          - $values/manifests/observability/values/kube-prometheus-stack.yaml
+    - repoURL: https://github.com/lara-portilho/FIAP-DevOps-kubernetes.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # CRDs do prometheus-operator passam do limite de anotacao do apply client-side
+      - ServerSideApply=true

@@ -46,6 +46,9 @@ spec:
                 name: targeting-service-secrets
             - configMapRef:
                 name: shared-config
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: targeting-service
           livenessProbe:
             httpGet:
               path: /health

@@ -31,8 +31,9 @@ sempre o ArgoCD.
 │   ├── flag-service/           # idem
 │   ├── targeting-service/      # idem
 │   ├── evaluation-service/      # Deployment (sem migration), Service, HPA (1-4, cpu 30%)
-│   └── analytics-service/       # Deployment (sem migration), Service, HPA (1-3, cpu 70%)
-├── argocd/                     # 6 Applications (uma por pasta de manifests/)
+│   ├── analytics-service/       # Deployment (sem migration), Service, HPA (1-3, cpu 70%)
+│   └── observability/values/    # values dos charts Prometheus/Grafana, Loki e Alloy (Fase 4)
+├── argocd/                     # 9 Applications (plataforma, 5 servicos, 3 de observabilidade)
 ├── secrets/                    # gitignored -- Secrets/ConfigMap com valores reais, NUNCA commitados
 ├── bootstrap.sh                # roda o bootstrap inteiro de uma vez (chama render-secrets.sh)
 ├── render-secrets.sh           # gera secrets/*.yaml com valores reais (RDS/Redis/SQS + API key semeada)
@@ -49,6 +50,7 @@ ficam fora de `manifests/` de proposito — veja "Secrets neste repositorio" aba
 
 ```bash
 export DB_PASSWORD='a mesma senha de db_password no terraform.tfvars'
+export NEW_RELIC_LICENSE_KEY='sua license key de ingest do New Relic'
 ./bootstrap.sh
 ```
 
@@ -122,6 +124,48 @@ selecionar repositorios pessoais que voce mesmo possui (ou de organizacoes) — 
 repositorio pessoal de outra conta mesmo como collaborator. Por isso, quando o dono do token e apenas
 collaborator (nao o dono da conta) neste repositorio, um PAT classic e o caminho que funciona; ele da
 acesso a tudo que essa conta enxerga com o escopo `repo`, entao trate-o com o mesmo cuidado de uma senha.
+
+## Observabilidade (Fase 4): OpenTelemetry com Grafana Alloy
+
+Tres Applications extras (`argocd/observability-*-app.yaml`) instalam, via Helm charts oficiais, a stack
+no namespace `observability`. Os charts vem dos repositorios Helm e os values ficam versionados aqui em
+`manifests/observability/values/` (Applications multi-source do ArgoCD, `ref: values`).
+
+| Application | Chart | O que sobe |
+|---|---|---|
+| `observability-kube-prometheus-stack` | `prometheus-community/kube-prometheus-stack` | Prometheus (com remote-write receiver), Grafana (datasource Loki), node-exporter, kube-state-metrics |
+| `observability-loki` | `grafana/loki` | Loki SingleBinary, armazenamento em filesystem |
+| `observability-alloy` | `grafana/alloy` | Alloy em DaemonSet: coletor OpenTelemetry central |
+
+```
+5 microsservicos (SDK OTel) --OTLP/HTTP :4318--> Alloy (Service alloy.observability)
+/var/log/pods/* (todos os containers) --------->   |
+                                                   v
+                otelcol: k8sattributes -> memory_limiter -> batch
+                   |-- traces  -> spanmetrics (metricas RED) + New Relic
+                   |-- metrics -> Prometheus (remote_write) + New Relic
+                   '-- logs    -> Loki (cluster inteiro) + New Relic (so ns togglemaster)
+```
+
+- Os servicos recebem `OTEL_EXPORTER_OTLP_ENDPOINT` e afins do `shared-config` e o `OTEL_SERVICE_NAME`
+  no proprio `deployment.yaml`.
+- A serie `traces_span_metrics_calls_total{service_name, span_kind, status_code, http_response_status_code}`
+  (gerada pelo Alloy a partir dos spans) e uniforme para os servicos Go e Python. E a base para taxa de
+  requisicoes e erros 5xx no Grafana.
+- Os logs dos servicos sao JSON com `trace_id`, entao no Loki da para filtrar por trace:
+  `{namespace="togglemaster"} | json | trace_id="<id>"`.
+- Nao ha PVCs (o cluster nao tem o driver EBS CSI): Prometheus e Loki guardam em `emptyDir`, e os dados
+  somem se o pod for recriado.
+
+Secrets extras (gerados pelo `render-secrets.sh`, nunca commitados): `newrelic-license` (precisa de
+`NEW_RELIC_LICENSE_KEY`, uma license key do tipo INGEST) e `grafana-admin` (senha impressa pelo script).
+
+Acesso local:
+
+```bash
+kubectl -n observability port-forward svc/kube-prometheus-stack-grafana 3000:80   # Grafana
+kubectl -n observability port-forward ds/alloy 12345                              # UI do Alloy (grafo do pipeline)
+```
 
 ## Secrets neste repositorio
 
