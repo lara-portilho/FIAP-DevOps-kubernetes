@@ -5,6 +5,9 @@
 # Uso:
 #   export DB_PASSWORD='a mesma senha de db_password no terraform.tfvars'
 #   export NEW_RELIC_LICENSE_KEY='sua license key de ingest do New Relic'
+#   export PAGERDUTY_INTEGRATION_KEY='integration key (Events API v2) do PagerDuty'
+#   export SLACK_WEBHOOK_URL='https://hooks.slack.com/services/...'
+#   export GITHUB_DISPATCH_TOKEN='ghp_... (PAT classic, escopo repo)'
 #   ./bootstrap.sh
 set -euo pipefail
 
@@ -28,8 +31,8 @@ echo "    ja e semeada no banco pelo init container do auth-service)..."
 ./render-secrets.sh
 kubectl apply -f secrets/
 
-echo "==> [4/4] Aplicando as 9 Applications do ArgoCD (plataforma, 5 servicos e"
-echo "    stack de observabilidade: kube-prometheus-stack, Loki e Alloy)..."
+echo "==> [4/4] Aplicando as 10 Applications do ArgoCD (plataforma, 5 servicos e"
+echo "    stack de observabilidade: kube-prometheus-stack, Loki, Alloy e alertas)..."
 echo "    (se a infra acabou de ser recriada do zero, os Deployments comecam com uma"
 echo "     imagem PLACEHOLDER ate os 5 CIs de servico rodarem pelo menos uma vez --"
 echo "     dispare um push/re-run em cada um dos 5 repos de servico se for o caso)"

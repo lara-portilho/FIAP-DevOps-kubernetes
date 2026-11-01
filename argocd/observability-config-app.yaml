@@ -1,0 +1,25 @@
+# Configuracao da stack de observabilidade como codigo: alertas do Grafana (alerting/) e dashboards
+# (dashboards/). Carregados pelo sidecar do Grafana via ConfigMaps com label.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability-config
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://github.com/lara-portilho/FIAP-DevOps-kubernetes.git
+      targetRevision: main
+      path: manifests/observability/alerting
+    - repoURL: https://github.com/lara-portilho/FIAP-DevOps-kubernetes.git
+      targetRevision: main
+      path: manifests/observability/dashboards
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

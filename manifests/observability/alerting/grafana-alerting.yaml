@@ -1,0 +1,138 @@
+# Alertas do Grafana (Fase 4, requisito 4) provisionados como codigo.
+#
+# O sidecar do Grafana (sidecar.alerts, label grafana_alert) le este ConfigMap e grava cada chave como
+# arquivo em /etc/grafana/provisioning/alerting/. Fica fora dos values do chart de proposito: o chart
+# passa os values por "tpl" do Helm, que quebraria os templates {{ }} das mensagens.
+#
+# Segredos NUNCA ficam aqui: $__env{VAR} e lido pelo Grafana do Secret grafana-alerting-secrets
+# (gerado pelo render-secrets.sh, fora do Git).
+#
+# Fluxo: regra (5xx > 5%) -> contact point "togglemaster-oncall", que dispara 3 integracoes em paralelo:
+#   1. PagerDuty  -> abre o incidente (acorda o plantao)
+#   2. Slack      -> notificacao detalhada no canal
+#   3. GitHub     -> repository_dispatch que roda o workflow Self-Healing (rollout restart)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-alerting
+  namespace: observability
+  labels:
+    grafana_alert: "1"
+data:
+  contact-points.yaml: |
+    apiVersion: 1
+    contactPoints:
+      - orgId: 1
+        name: togglemaster-oncall
+        receivers:
+          - uid: tm-pagerduty
+            type: pagerduty
+            settings:
+              integrationKey: $__env{PAGERDUTY_INTEGRATION_KEY}
+              severity: critical
+              component: '{{ .CommonLabels.service_name }}'
+              group: togglemaster
+              class: '{{ .CommonLabels.alertname }}'
+              summary: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }} - {{ .CommonLabels.service_name }}'
+            disableResolveMessage: false
+
+          - uid: tm-slack
+            type: slack
+            settings:
+              url: $__env{SLACK_WEBHOOK_URL}
+              title: '{{ if eq .Status "firing" }}:rotating_light: ALERTA{{ else }}:white_check_mark: RESOLVIDO{{ end }} - {{ .CommonLabels.alertname }}'
+              text: |-
+                {{ range .Alerts }}*Servico:* `{{ .Labels.service_name }}`
+                *Severidade:* {{ .Labels.severity }}
+                *Resumo:* {{ .Annotations.summary }}
+                *Detalhes:* {{ .Annotations.description }}
+                *Valor medido:* {{ .ValueString }}
+                *Desde:* {{ .StartsAt.Format "02/01/2006 15:04:05" }}
+                *Acao automatica:* o workflow Self-Healing reinicia o deployment (veja o GitHub Actions)
+                {{ end }}
+            disableResolveMessage: false
+
+          # Self-healing: repository_dispatch no repo GitOps. A resposta de sucesso do GitHub e 204.
+          # disableResolveMessage evita reiniciar o servico de novo quando o alerta volta ao normal.
+          - uid: tm-github-self-healing
+            type: webhook
+            settings:
+              url: https://api.github.com/repos/lara-portilho/FIAP-DevOps-kubernetes/dispatches
+              httpMethod: POST
+              authorization_scheme: Bearer
+              authorization_credentials: $__env{GITHUB_DISPATCH_TOKEN}
+              payload:
+                template: '{"event_type":"self-healing","client_payload":{"service":"{{ (index .Alerts 0).Labels.service_name }}","alertname":"{{ .CommonLabels.alertname }}","reason":"{{ (index .Alerts 0).Annotations.summary }}"}}'
+            disableResolveMessage: true
+
+  policies.yaml: |
+    apiVersion: 1
+    policies:
+      - orgId: 1
+        receiver: togglemaster-oncall
+        # Um grupo por servico e alerta: evita rajada de notificacoes (alert fatigue) e garante que o
+        # payload do self-healing sempre traga um unico servico.
+        group_by: [alertname, service_name]
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 1h
+
+  rules.yaml: |
+    apiVersion: 1
+    groups:
+      - orgId: 1
+        name: togglemaster-http
+        folder: ToggleMaster
+        interval: 30s
+        rules:
+          - uid: tm-http-5xx-rate
+            title: Taxa de erros HTTP 5xx acima de 5%
+            condition: C
+            data:
+              # Metrica RED gerada pelo Alloy (spanmetrics) a partir dos spans SERVER de todos os
+              # servicos. Ignora servicos com menos de 0,05 req/s para nao alertar com amostra minima.
+              - refId: A
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  refId: A
+                  instant: true
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+                  expr: |-
+                    100 *
+                    sum by (service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER", http_response_status_code=~"5.."}[2m]))
+                    / sum by (service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER"}[2m]))
+                    and on (service_name)
+                    sum by (service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER"}[2m])) > 0.05
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  refId: B
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  settings:
+                    mode: dropNN
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  refId: C
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        type: gt
+                        params: [5]
+            # Sem dado (servico sem erro 5xx) = saudavel: o alerta volta ao normal sozinho.
+            noDataState: OK
+            execErrState: Error
+            for: 1m
+            labels:
+              severity: critical
+              team: togglemaster
+            annotations:
+              summary: Mais de 5% das requisicoes do servico estao retornando 5xx
+              description: Taxa de erros HTTP 5xx acima de 5% nos ultimos 2 minutos. O self-healing reinicia o deployment.

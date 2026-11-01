@@ -11,6 +11,12 @@
 controller:
   type: daemonset
 
+# Cada pod envia OTLP sempre para o Alloy do proprio no. Sem isso, o Service balanceia entre os
+# DaemonSet pods e os spans de um mesmo servico se espalham por varios coletores, duplicando as
+# series do spanmetrics (taxa de requisicoes e de erros 5xx oscilam).
+service:
+  internalTrafficPolicy: Local
+
 alloy:
   mounts:
     varlog: true
