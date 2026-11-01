@@ -169,8 +169,9 @@ kubectl -n observability port-forward ds/alloy 12345                            
 
 ## Alertas e Self-Healing (Fase 4)
 
-Uma Application extra (`argocd/observability-alerting-app.yaml`) aplica `manifests/observability/alerting/`:
-um ConfigMap com label `grafana_alert` que o sidecar do Grafana provisiona (regra, contact point e policy).
+Uma Application extra (`argocd/observability-config-app.yaml`) aplica `manifests/observability/alerting/`
+(ConfigMap com label `grafana_alert`, que o sidecar do Grafana provisiona: regra, contact point e policy) e
+`manifests/observability/dashboards/` (dashboard, abaixo).
 
 ```
 Regra: taxa de 5xx > 5% por servico (traces_span_metrics_calls_total, gerada pelo Alloy), for 1m
@@ -187,6 +188,13 @@ contact point "togglemaster-oncall" -> 3 integracoes em paralelo
   `GITHUB_DISPATCH_TOKEN`), gerado pelo `render-secrets.sh` a partir de variaveis de ambiente.
 - Workflow de self-healing: `.github/workflows/self-healing.yml` (acesso ao cluster limitado por
   `manifests/platform/self-healing-rbac.yaml`). Teste sem o Grafana: `scripts/trigger-self-healing.sh`.
+
+### Dashboard "ToggleMaster - Saude do Ecossistema"
+
+ConfigMap `manifests/observability/dashboards/togglemaster-overview.yaml` (label `grafana_dashboard=1`),
+carregado automaticamente pelo Grafana. Paineis: pods rodando, requisicoes/s, % de 5xx, idade do pod mais novo
+(cai quando o self-healing reinicia), taxa de requisicoes/erros/latencia p95 por servico, replicas disponiveis,
+CPU/memoria dos nos e dos pods e logs em tempo real do Loki (filtro por servico e busca livre).
 
 ## Secrets neste repositorio
 
