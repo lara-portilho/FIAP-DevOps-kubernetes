@@ -1,0 +1,150 @@
+name: Self-Healing
+
+# Runbook automatizado: reinicia um deployment do ToggleMaster quando um alerta dispara.
+#
+# Disparos:
+#  - repository_dispatch (event_type "self-healing"): chamado pelo webhook do Grafana/PagerDuty.
+#      POST https://api.github.com/repos/<owner>/FIAP-DevOps-kubernetes/dispatches
+#      {"event_type":"self-healing","client_payload":{"service":"auth-service","alertname":"...","reason":"..."}}
+#  - workflow_dispatch: disparo manual pela aba Actions (para testes e para o vídeo).
+
+on:
+  repository_dispatch:
+    types: [self-healing]
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Deployment a reiniciar"
+        required: true
+        type: choice
+        options:
+          - auth-service
+          - flag-service
+          - targeting-service
+          - evaluation-service
+          - analytics-service
+      reason:
+        description: "Motivo (aparece no resumo e na notificação)"
+        required: false
+        default: "Disparo manual"
+
+permissions:
+  contents: read
+
+env:
+  NAMESPACE: togglemaster
+  CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME || 'togglemaster-cluster' }}
+
+# Uma execução por serviço por vez: se o alerta repetir enquanto o restart roda, a nova execução espera.
+concurrency:
+  group: self-healing-${{ github.event.client_payload.service || inputs.service }}
+  cancel-in-progress: false
+
+jobs:
+  restart:
+    name: Restart deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Ler e validar o payload
+        id: input
+        env:
+          SERVICE: ${{ github.event.client_payload.service || inputs.service }}
+          ALERT: ${{ github.event.client_payload.alertname || 'manual' }}
+          REASON: ${{ github.event.client_payload.reason || inputs.reason || 'sem detalhes' }}
+        run: |
+          # Lista fechada: o payload vem de fora, então só aceitamos os 5 deployments conhecidos.
+          case "$SERVICE" in
+            auth-service|flag-service|targeting-service|evaluation-service|analytics-service) ;;
+            *) echo "::error::Serviço inválido ou ausente no payload: '$SERVICE'"; exit 1 ;;
+          esac
+          {
+            echo "service=$SERVICE"
+            echo "alert=$ALERT"
+            echo "reason=$(echo "$REASON" | tr -d '\n' | cut -c1-300)"
+          } >> "$GITHUB_OUTPUT"
+          echo "Self-healing para $SERVICE (alerta: $ALERT)"
+
+      # Usuário IAM dedicado (togglemaster-self-healing): na AWS só tem eks:DescribeCluster e,
+      # dentro do cluster, só pode reiniciar deployments (RBAC manifests/platform/self-healing-rbac.yaml).
+      - name: Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.SELF_HEALING_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.SELF_HEALING_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Configurar kubeconfig
+        run: aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION"
+
+      - name: Estado antes
+        env:
+          SERVICE: ${{ steps.input.outputs.service }}
+        run: |
+          kubectl -n "$NAMESPACE" get deployment "$SERVICE" -o wide
+          kubectl -n "$NAMESPACE" get pods -l "app=$SERVICE" -o wide
+
+      - name: Rollout restart
+        id: restart
+        env:
+          SERVICE: ${{ steps.input.outputs.service }}
+        run: |
+          kubectl -n "$NAMESPACE" rollout restart "deployment/$SERVICE"
+          if kubectl -n "$NAMESPACE" rollout status "deployment/$SERVICE" --timeout=180s; then
+            echo "result=sucesso" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=falhou (rollout não ficou pronto em 180s)" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      - name: Estado depois
+        if: always() && steps.restart.outcome != 'skipped'
+        env:
+          SERVICE: ${{ steps.input.outputs.service }}
+        run: |
+          kubectl -n "$NAMESPACE" get pods -l "app=$SERVICE" -o wide
+          kubectl -n "$NAMESPACE" get events --field-selector "involvedObject.name=$SERVICE" --sort-by=.lastTimestamp | tail -n 10 || true
+
+      - name: Resumo da execução
+        if: always()
+        env:
+          SERVICE: ${{ steps.input.outputs.service }}
+          ALERT: ${{ steps.input.outputs.alert }}
+          REASON: ${{ steps.input.outputs.reason }}
+          RESULT: ${{ steps.restart.outputs.result || 'não executado' }}
+          TRIGGER: ${{ github.event_name }}
+        run: |
+          {
+            echo "## Self-Healing: \`$SERVICE\`"
+            echo ""
+            echo "| Campo | Valor |"
+            echo "|---|---|"
+            echo "| Alerta | $ALERT |"
+            echo "| Motivo | $REASON |"
+            echo "| Disparo | $TRIGGER |"
+            echo "| Ação | \`kubectl rollout restart deployment/$SERVICE -n $NAMESPACE\` |"
+            echo "| Resultado | $RESULT |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Opcional: avisa o canal de ChatOps sobre o resultado.
+      # Slack: use a URL do Incoming Webhook. Discord: use a URL do webhook terminando em /slack.
+      - name: Notificar ChatOps
+        if: always()
+        env:
+          WEBHOOK_URL: ${{ secrets.CHATOPS_WEBHOOK_URL }}
+          SERVICE: ${{ steps.input.outputs.service }}
+          ALERT: ${{ steps.input.outputs.alert }}
+          RESULT: ${{ steps.restart.outputs.result || 'não executado' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "CHATOPS_WEBHOOK_URL não configurado, pulando."
+            exit 0
+          fi
+          payload=$(jq -n \
+            --arg text ":robot_face: *Self-Healing* \`${SERVICE}\`
+          Alerta: ${ALERT}
+          Ação: rollout restart deployment/${SERVICE}
+          Resultado: *${RESULT}*
+          Execução: ${RUN_URL}" '{text: $text}')
+          curl -fsS -X POST -H 'Content-Type: application/json' -d "$payload" "$WEBHOOK_URL"
