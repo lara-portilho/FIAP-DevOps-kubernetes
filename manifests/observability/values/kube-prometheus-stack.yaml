@@ -40,6 +40,9 @@ grafana:
     existingSecret: grafana-admin
     userKey: admin-user
     passwordKey: admin-password
+  # Chaves dos contact points (PagerDuty, Slack, token do GitHub) lidas via $__env{} nos alertas
+  # provisionados; Secret gerado pelo render-secrets.sh, fora do Git
+  envFromSecret: grafana-alerting-secrets
   persistence:
     enabled: false
   # Pod de "helm test" -- nao faz sentido sob o ArgoCD
@@ -60,6 +63,12 @@ grafana:
       enabled: true
       label: grafana_dashboard
       labelValue: "1"
+      searchNamespace: ALL
+    # Alertas/contact points/policies versionados em ConfigMaps com o label grafana_alert
+    # (manifests/observability/alerting)
+    alerts:
+      enabled: true
+      label: grafana_alert
       searchNamespace: ALL
   resources:
     requests:

@@ -22,11 +22,16 @@
 # Stack de observabilidade (namespace observability): a license key do New
 # Relic (NEW_RELIC_LICENSE_KEY, tipo "INGEST - LICENSE") vai para o Secret
 # newrelic-license usado pelo Alloy; a senha do admin do Grafana e gerada se
-# GRAFANA_ADMIN_PASSWORD nao for definida.
+# GRAFANA_ADMIN_PASSWORD nao for definida. Os alertas do Grafana (PagerDuty, Slack e
+# disparo do workflow Self-Healing) leem PAGERDUTY_INTEGRATION_KEY, SLACK_WEBHOOK_URL e
+# GITHUB_DISPATCH_TOKEN do Secret grafana-alerting-secrets.
 #
 # Uso:
 #   export DB_PASSWORD='a mesma senha do terraform.tfvars'
 #   export NEW_RELIC_LICENSE_KEY='sua license key de ingest do New Relic'
+#   export PAGERDUTY_INTEGRATION_KEY='integration key (Events API v2) do PagerDuty'
+#   export SLACK_WEBHOOK_URL='https://hooks.slack.com/services/...'
+#   export GITHUB_DISPATCH_TOKEN='ghp_... (PAT classic, escopo repo)'
 #   ./render-secrets.sh
 #   kubectl apply -f secrets/
 set -euo pipefail
@@ -35,6 +40,9 @@ TF_DIR="${TF_DIR:-../FIAP-DevOps-terraform}"
 DB_USERNAME="${DB_USERNAME:-postgres}"
 : "${DB_PASSWORD:?defina DB_PASSWORD (a mesma senha de db_password no terraform.tfvars)}"
 : "${NEW_RELIC_LICENSE_KEY:?defina NEW_RELIC_LICENSE_KEY (license key de ingest do New Relic)}"
+: "${PAGERDUTY_INTEGRATION_KEY:?defina PAGERDUTY_INTEGRATION_KEY (Integration Key da Events API v2 do service no PagerDuty)}"
+: "${SLACK_WEBHOOK_URL:?defina SLACK_WEBHOOK_URL (Incoming Webhook do canal de alertas)}"
+: "${GITHUB_DISPATCH_TOKEN:?defina GITHUB_DISPATCH_TOKEN (PAT classic com escopo repo, usado pelo Grafana para disparar o self-healing)}"
 GRAFANA_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD:-$(openssl rand -hex 16)}"
 AUTH_MASTER_KEY="${AUTH_MASTER_KEY:-$(openssl rand -hex 24)}"
 SERVICE_API_KEY="${SERVICE_API_KEY:-tm_key_$(openssl rand -hex 24)}"
@@ -158,6 +166,20 @@ type: Opaque
 stringData:
   admin-user: "admin"
   admin-password: "${GRAFANA_ADMIN_PASSWORD}"
+EOF
+
+echo "==> Gerando secrets/grafana-alerting-secrets.yaml (contact points do Grafana)..."
+cat > secrets/grafana-alerting-secrets.yaml <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-alerting-secrets
+  namespace: observability
+type: Opaque
+stringData:
+  PAGERDUTY_INTEGRATION_KEY: "${PAGERDUTY_INTEGRATION_KEY}"
+  SLACK_WEBHOOK_URL: "${SLACK_WEBHOOK_URL}"
+  GITHUB_DISPATCH_TOKEN: "${GITHUB_DISPATCH_TOKEN}"
 EOF
 
 echo ""

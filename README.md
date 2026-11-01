@@ -33,7 +33,7 @@ sempre o ArgoCD.
 │   ├── evaluation-service/      # Deployment (sem migration), Service, HPA (1-4, cpu 30%)
 │   ├── analytics-service/       # Deployment (sem migration), Service, HPA (1-3, cpu 70%)
 │   └── observability/values/    # values dos charts Prometheus/Grafana, Loki e Alloy (Fase 4)
-├── argocd/                     # 9 Applications (plataforma, 5 servicos, 3 de observabilidade)
+├── argocd/                     # 10 Applications (plataforma, 5 servicos, 4 de observabilidade)
 ├── secrets/                    # gitignored -- Secrets/ConfigMap com valores reais, NUNCA commitados
 ├── bootstrap.sh                # roda o bootstrap inteiro de uma vez (chama render-secrets.sh)
 ├── render-secrets.sh           # gera secrets/*.yaml com valores reais (RDS/Redis/SQS + API key semeada)
@@ -166,6 +166,27 @@ Acesso local:
 kubectl -n observability port-forward svc/kube-prometheus-stack-grafana 3000:80   # Grafana
 kubectl -n observability port-forward ds/alloy 12345                              # UI do Alloy (grafo do pipeline)
 ```
+
+## Alertas e Self-Healing (Fase 4)
+
+Uma Application extra (`argocd/observability-alerting-app.yaml`) aplica `manifests/observability/alerting/`:
+um ConfigMap com label `grafana_alert` que o sidecar do Grafana provisiona (regra, contact point e policy).
+
+```
+Regra: taxa de 5xx > 5% por servico (traces_span_metrics_calls_total, gerada pelo Alloy), for 1m
+   |
+   v  policy: agrupa por alertname + service_name (anti alert-fatigue)
+contact point "togglemaster-oncall" -> 3 integracoes em paralelo
+   |-- PagerDuty  (Events API v2): abre o incidente
+   |-- Slack      (Incoming Webhook): notificacao detalhada
+   '-- GitHub     (repository_dispatch) -> workflow Self-Healing -> kubectl rollout restart deployment/<servico>
+```
+
+- O webhook do GitHub tem `disableResolveMessage: true`, para nao reiniciar o servico de novo quando o alerta resolve.
+- As chaves vem do Secret `grafana-alerting-secrets` (`PAGERDUTY_INTEGRATION_KEY`, `SLACK_WEBHOOK_URL`,
+  `GITHUB_DISPATCH_TOKEN`), gerado pelo `render-secrets.sh` a partir de variaveis de ambiente.
+- Workflow de self-healing: `.github/workflows/self-healing.yml` (acesso ao cluster limitado por
+  `manifests/platform/self-healing-rbac.yaml`). Teste sem o Grafana: `scripts/trigger-self-healing.sh`.
 
 ## Secrets neste repositorio
 
