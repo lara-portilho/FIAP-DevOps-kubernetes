@@ -119,6 +119,10 @@ alloy:
       //   traces_span_metrics_calls_total{service_name, span_kind, status_code, http_response_status_code}
       //   traces_span_metrics_duration_seconds_bucket{...}
       otelcol.connector.spanmetrics "red" {
+        // Padrao e 60s: com isso o rate() do Prometheus nao acha 2 amostras em janelas de 1m
+        // (paineis vazios) e o alerta de 5xx demora mais a reagir. 15s da 4 amostras por minuto.
+        metrics_flush_interval = "15s"
+
         dimension {
           name = "http.response.status_code"
         }
