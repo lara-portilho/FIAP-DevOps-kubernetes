@@ -34,7 +34,13 @@ spec:
                 name: shared-config
           env:
             - name: OTEL_SERVICE_NAME
-              value: evaluation-service
+              value: "evaluation-service"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.toggle-master.svc.cluster.local:4317"
+            - name: OTEL_TRACES_SAMPLER
+              value: "always_on"
+            - name: OTEL_PROPAGATORS
+              value: "tracecontext,baggage"
           livenessProbe:
             httpGet:
               path: /health
