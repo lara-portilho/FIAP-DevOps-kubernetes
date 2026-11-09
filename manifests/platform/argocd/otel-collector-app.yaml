@@ -1,0 +1,61 @@
+# ==============================================================================
+# FIAP DevOps - Tech Challenge Fase 4
+# Recursos GitOps (ArgoCD) para a Stack de Observabilidade (OpenTelemetry)
+# ==============================================================================
+# Este manifesto cria a aplicação 'otel-collector' dentro do ArgoCD.
+# Ele instrui o ArgoCD a monitorizar a pasta de manifestos da plataforma e
+# a manter o OpenTelemetry Collector sincronizado e saudável no cluster EKS.
+# ==============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  # Nome da aplicação visualizada no painel Web do ArgoCD
+  name: otel-collector
+  # O ArgoCD executa por padrão no namespace 'argocd'
+  namespace: argocd
+  # Rótulos para organização e filtragem no painel do ArgoCD
+  labels:
+    component: observability
+    tier: platform
+spec:
+  # Projeto do ArgoCD ao qual esta aplicação pertence ('default' é o padrão)
+  project: default
+
+  # ----------------------------------------------------------------------------
+  # SOURCE (Origem dos Manifestos Kubernetes)
+  # Especifica onde o ArgoCD deve buscar as definições de infraestrutura (GitOps)
+  # ----------------------------------------------------------------------------
+  source:
+    # URL do repositório oficial do projeto no GitHub (substitua com o utilizador da sua equipa se necessário)
+    repoURL: 'https://github.com/SEU-USUARIO/FIAP-DevOps-kubernetes.git'
+    
+    # Branch ou commit que o ArgoCD deve rastrear (HEAD aponta para o commit mais recente da branch padrão)
+    targetRevision: HEAD
+    
+    # Caminho exato dentro do repositório onde estão os manifestos YAML da plataforma (incluindo o otel-collector.yaml)
+    path: manifests/platform
+
+  # ----------------------------------------------------------------------------
+  # DESTINATION (Destino da Implantação no Kubernetes)
+  # Especifica em qual cluster e namespace o recurso será aplicado
+  # ----------------------------------------------------------------------------
+  destination:
+    # Endereço do Servidor Kubernetes API (o valor padrão refere-se ao próprio cluster onde o ArgoCD está rodando)
+    server: 'https://kubernetes.default.svc'
+    
+    # Namespace do cluster onde o OpenTelemetry Collector será implantado
+    namespace: toggle-master
+
+  # ----------------------------------------------------------------------------
+  # SYNC POLICY (Política de Sincronização Automática)
+  # Configurações de automação e autoreparação (Self-Healing) do ArgoCD
+  # ----------------------------------------------------------------------------
+  syncPolicy:
+    automated:
+      # PRUNE: Se um ficheiro YAML for apagado do repositório Git, o ArgoCD elimina
+      # automaticamente os recursos correspondentes no cluster para evitar recursos órfãos.
+      prune: true
+      
+      # SELF-HEAL: Se alguém alterar manualmente um recurso no cluster (ex: via kubectl edit/delete),
+      # o ArgoCD deteta o desvio
