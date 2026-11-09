@@ -153,7 +153,7 @@ no namespace `observability`. Os charts vem dos repositorios Helm e os values fi
   (gerada pelo Alloy a partir dos spans) e uniforme para os servicos Go e Python. E a base para taxa de
   requisicoes e erros 5xx no Grafana.
 - Os logs dos servicos sao JSON com `trace_id`, entao no Loki da para filtrar por trace:
-  `{namespace="togglemaster"} | json | trace_id="<id>"`.
+  `{namespace="togglemaster"} |= "<id>"` (o Alloy entrega cada log embrulhado em `{"body": "...", "attributes": {...}}`; para ver so o log use `| json | line_format "{{.body}}"`).
 - Nao ha PVCs (o cluster nao tem o driver EBS CSI): Prometheus e Loki guardam em `emptyDir`, e os dados
   somem se o pod for recriado.
 

@@ -804,7 +804,7 @@ data:
               "refId": "A",
               "queryType": "range",
               "maxLines": 500,
-              "expr": "{namespace=\"togglemaster\", app=~\"$service\"} |~ \"(?i)$search\""
+              "expr": "{namespace=\"togglemaster\", app=~\"$service\"} |~ \"(?i)$search\" | json | line_format \"{{.body}}\""
             }
           ]
         }
