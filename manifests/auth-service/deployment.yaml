@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: auth-service
-  namespace: togglemaster
+  namespace: toggle-master
   labels:
     app: auth-service
 spec:
@@ -27,42 +27,25 @@ spec:
               mountPath: /migrations
             - name: seed
               mountPath: /seed
+      containers:
+        - name: auth-service
+          image: # (Mantém a imagem que já está configurada no teu repositório)
+          ports:
+            - containerPort: 8080
+          env:
+            # Variáveis de Ambiente do OpenTelemetry (Traces & Métricas para o New Relic)
+            - name: OTEL_SERVICE_NAME
+              value: "auth-service"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.toggle-master.svc.cluster.local:4317"
+            - name: OTEL_TRACES_SAMPLER
+              value: "always_on"
+            - name: OTEL_PROPAGATORS
+              value: "tracecontext,baggage"
       volumes:
         - name: migrations
           configMap:
-            name: auth-db-migrations
+            name: auth-service-migrations
         - name: seed
           configMap:
-            name: auth-db-seed
-      containers:
-        - name: auth-service
-          image: 371892039616.dkr.ecr.us-east-1.amazonaws.com/togglemaster/auth-service:v1.0.0-0c622b9
-          ports:
-            - containerPort: 8001
-          resources:
-            requests:
-              cpu: 100m
-              memory: 128Mi
-            limits:
-              cpu: 250m
-              memory: 256Mi
-          envFrom:
-            - secretRef:
-                name: auth-service-secrets
-            - configMapRef:
-                name: shared-config
-          env:
-            - name: OTEL_SERVICE_NAME
-              value: auth-service
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 8001
-            initialDelaySeconds: 10
-            periodSeconds: 15
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 8001
-            initialDelaySeconds: 5
-            periodSeconds: 10
+            name: auth-service-seed
