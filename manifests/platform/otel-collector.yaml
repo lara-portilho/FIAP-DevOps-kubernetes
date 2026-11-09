@@ -1,0 +1,107 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: toggle-master
+data:
+  otel-collector-config.yaml: |
+    # =========================================================================
+    # REQUISITO 2: Configuração do OpenTelemetry Collector (OTel Collector)
+    # Responsável por receber a telemetria dos microsserviços via OTLP (gRPC/HTTP),
+    # processar lotes e encaminhar para os backends corretos (Prometheus e New Relic).
+    # =========================================================================
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317 # Porta padrão para recepção de traces/métricas via gRPC
+          http:
+            endpoint: 0.0.0.0:4318 # Porta padrão para recepção via HTTP
+
+    processors:
+      batch:
+        timeout: 1s            # Agrupa os dados por 1 segundo antes de enviar para otimizar rede
+        send_batch_size: 1024  # Tamanho máximo de cada lote enviado
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 75   # Proteção contra picos de memória no Pod do coletor
+        spike_limit_percentage: 20
+
+    exporters:
+      # REQUISITO 3: Exportação do Distributed Tracing para o New Relic (via endpoint OTLP)
+      otlp/newrelic:
+        endpoint: otlp.nr-data.net:4317
+        headers:
+          api-key: "${NEW_RELIC_LICENSE_KEY}" # Injetada via secret do cluster
+      
+      # REQUISITO 1: Exportação de métricas para o Prometheus interno
+      prometheus:
+        endpoint: 0.0.0.0:8889
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/newrelic]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [prometheus, otlp/newrelic]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: toggle-master
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:latest
+          args: ["--config=/etc/otelcol/otel-collector-config.yaml"]
+          env:
+            # Chave de licença do New Relic resgatada de forma segura do cofre/secret do K8s
+            - name: NEW_RELIC_LICENSE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: telemetry-secrets
+                  key: new-relic-license-key
+          ports:
+            - containerPort: 4317 # Porta OTLP gRPC
+            - containerPort: 4318 # Porta OTLP HTTP
+            - containerPort: 8889 # Porta de métricas Prometheus
+          volumeMounts:
+            - name: otel-collector-config-vol
+              mountPath: /etc/otelcol
+      volumes:
+        - name: otel-collector-config-vol
+          configMap:
+            name: otel-collector-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: toggle-master
+spec:
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+    - name: metrics
+      port: 8889
+      targetPort: 8889
+  selector:
+    app: otel-collector
